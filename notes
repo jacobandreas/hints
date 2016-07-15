@@ -1,0 +1,11 @@
+5x5 grid without untying
+
+7x7 grid with restricted number of training examples
+
+reflex agent baseline
+
+condition on previous output / only backward pass
+
+local sensor
+
+explicit value iteration
