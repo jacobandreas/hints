@@ -6,7 +6,7 @@ from apollocaffe.layers import *
 import numpy as np
 import yaml
 
-N_HIDDEN = 200
+N_HIDDEN = 300
 THINK_TIME = 20
 
 OPT_PARAMS = Struct(**yaml.load("""
@@ -41,11 +41,11 @@ class Planner(object):
 
         self.net.clear_forward()
         self.net.f(NumpyData(l_features, features))
-        #self.net.f(InnerProduct(l_ip_repr, N_HIDDEN, bottoms=[l_features]))
-        #self.net.f(ReLU(l_relu_repr, bottoms=[l_ip_repr]))
-        l_relu_repr = l_features
+        self.net.f(InnerProduct(l_ip_repr, N_HIDDEN, bottoms=[l_features]))
+        self.net.f(ReLU(l_relu_repr, bottoms=[l_ip_repr]))
+        #l_relu_repr = l_features
 
-        l_plan = self.think(l_relu_repr)
+        l_plan = self.think(l_relu_repr, randomize=train)
 
         if train:
             ll_targets = []
@@ -99,9 +99,10 @@ class Planner(object):
             l_prev_mem = l_mem
             yield l_hidden
 
-    def think(self, l_repr):
+    def think(self, l_repr, randomize):
+        time = np.random.randint(THINK_TIME) + 1 if randomize else THINK_TIME
         reprs = [l for l in self.lstm("think", [[l_repr] for i in
-                range(THINK_TIME)])]
+                range(time)])]
         return reprs[-1]
 
     def act(self, l_plan, max_len, data, ll_targets, ll_masks, self_init):

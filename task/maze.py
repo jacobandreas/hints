@@ -2,7 +2,7 @@ from collections import namedtuple
 import numpy as np
 import sys
 
-BOARD_SIZE = 5
+BOARD_SIZE = 7
 TRUE_SIZE = BOARD_SIZE * 2 - 1
 MAX_LEN = 20
 
