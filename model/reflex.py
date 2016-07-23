@@ -1,5 +1,5 @@
 from opt import adadelta
-from util import *
+from util.misc import *
 
 from apollocaffe import ApolloNet
 from apollocaffe.layers import *

@@ -1,0 +1,116 @@
+<Environment>
+<Robot name="3DOFRobot">
+<KinBody>
+  <Body name="Base" type="dynamic">
+    <Translation>0.0  0.0  0.0</Translation>
+    <Geom type="cylinder">
+      <rotationaxis>1 0 0 90</rotationaxis>
+      <radius>0.03</radius>
+      <height>0.01</height>
+      <diffuseColor>0.05 0.05 0.05</diffuseColor>
+    </Geom>
+  </Body>
+  
+  <Body name="Arm0" type="dynamic">
+    <offsetfrom>Base</offsetfrom>
+    <Translation>0 0 0.005</Translation>
+    <Geom type="box">
+      <Translation>0.124956 0 0</Translation>
+      <Extents>0.124956 0.005 0.005</Extents>
+      <diffuseColor>0.05 0.05 0.05</diffuseColor>
+    </Geom>
+  </Body>
+
+  <Joint circular="true" name="Arm0" type="hinge">
+    <Body>Base</Body>
+    <Body>Arm0</Body>
+    <offsetfrom>Arm0</offsetfrom>
+    <weight>4</weight>
+    <limitsdeg>-180 180</limitsdeg>
+    <axis>0 0 1</axis>
+    <maxvel>3</maxvel>
+    <resolution>1</resolution>
+  </Joint>
+  
+  <Body name="Arm1" type="dynamic">
+    <offsetfrom>Arm0</offsetfrom>
+    <Translation>0.239912 0 0.01</Translation>
+    <Geom type="box">
+      <Translation>0.032187 0.0 0</Translation>
+      <Extents>0.032187 0.005 0.005</Extents>
+      <diffuseColor>0.05 0.05 0.05</diffuseColor>
+    </Geom>
+  </Body>
+
+  <Joint circular="true" name="Arm1" type="hinge">
+    <Body>Arm0</Body>
+    <Body>Arm1</Body>
+    <offsetfrom>Arm1</offsetfrom>
+    <weight>3</weight>
+    <limitsdeg>-180 180</limitsdeg>
+    <axis>0 0 1</axis>
+    <maxvel>4</maxvel>
+    <resolution>1</resolution>
+  </Joint>
+  
+  <Body name="Arm2" type="dynamic">
+    <offsetfrom>Arm1</offsetfrom>
+    <Translation>0.054374 0 0.01</Translation>
+    <Geom type="box">
+      <Translation>0.056262 0 0</Translation>
+      <Extents>0.056262 0.005 0.005</Extents>
+      <diffuseColor>0.05 0.05 0.05</diffuseColor>
+    </Geom>
+  </Body>
+
+  <Joint circular="true" name="Arm2" type="hinge">
+    <Body>Arm1</Body>
+    <Body>Arm2</Body>
+    <offsetfrom>Arm2</offsetfrom>
+    <weight>3</weight>
+    <limitsdeg>-180 180</limitsdeg>
+    <axis>0 0 1</axis>
+    <maxvel>2</maxvel>
+    <resolution>2</resolution>
+  </Joint>
+</KinBody>
+
+<Manipulator name="arm">
+  <effector>Arm2</effector>   
+  <base>Base</base>           
+  <direction>1 0 0</direction>
+  <Translation>0.125 0 0</Translation>
+</Manipulator>
+</Robot>
+
+<KinBody name="block01">
+  <Translation>0.068536 0.104484 0.000000</Translation>
+  <Body type="static">
+    <Geom type="box">
+      <extents>0.005000 0.005000 0.050000</extents>
+      <diffuseColor>1.0 0.6 0.6</diffuseColor>
+    </Geom>
+  </Body>
+</KinBody>
+
+<KinBody name="block20">
+  <Translation>-0.218334 0.299393 0.000000</Translation>
+  <Body type="static">
+    <Geom type="box">
+      <extents>0.005000 0.005000 0.050000</extents>
+      <diffuseColor>1.0 0.6 0.6</diffuseColor>
+    </Geom>
+  </Body>
+</KinBody>
+
+<KinBody name="block21">
+  <Translation>0.321655 0.183967 0.000000</Translation>
+  <Body type="static">
+    <Geom type="box">
+      <extents>0.005000 0.005000 0.050000</extents>
+      <diffuseColor>1.0 0.6 0.6</diffuseColor>
+    </Geom>
+  </Body>
+</KinBody>
+
+</Environment>

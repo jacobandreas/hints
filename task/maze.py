@@ -6,13 +6,8 @@ BOARD_SIZE = 7
 TRUE_SIZE = BOARD_SIZE * 2 - 1
 MAX_LEN = 20
 
-class Datum(namedtuple("Datum", ["features", "init", "goal", "demonstration", "task_data", "n_actions"])):
+class Datum(namedtuple("Datum", ["features", "init", "goal", "demonstration", "task_data"])):
     def inject_state_features(self, state):
-        #board = np.zeros((BOARD_SIZE, BOARD_SIZE))
-        #r = state / BOARD_SIZE
-        #c = state % BOARD_SIZE
-        #board[r, c] = 1
-        #return np.concatenate((self.features, board.ravel()))
         return np.concatenate((self.features, state))
 
 def load_batch(n_batch):
@@ -61,7 +56,7 @@ def load_batch(n_batch):
 
         #features = board.ravel()
         features = np.concatenate((board.ravel(), init, goal))
-        datum = Datum(features, init, goal, demo, board, BOARD_SIZE * BOARD_SIZE)
+        datum = Datum(features, init, goal, demo, board)
         data.append(datum)
 
     return data

@@ -2,7 +2,7 @@
 
 from model.planner import Planner
 from model.reflex import Reflex
-from task import maze
+from task import maze, three_link
 
 import apollocaffe
 import numpy as np
@@ -11,17 +11,19 @@ N_ITERS = 1000000
 N_BATCH = 100
 
 def main():
-    task = maze
+    #task = maze
+    task = three_link
     model = Planner()
     total_loss = 0
     for i_iter in range(N_ITERS):
+        print i_iter
         train_data = task.load_batch(N_BATCH)
         test_data = train_data
 
         loss, acc = do_iter(train_data, model)
         total_loss += loss
 
-        if i_iter % 1000 == 0:
+        if i_iter % 10 == 0:
             preds = model.predict(test_data)
             accs = [task.evaluate(preds[i], test_data[i]) for i in range(N_BATCH)]
             acc = np.mean(1. * np.asarray(accs))

@@ -1,5 +1,5 @@
 from opt import adadelta
-from util import *
+from util.misc import *
 
 from apollocaffe import ApolloNet
 from apollocaffe.layers import *
@@ -7,7 +7,7 @@ import numpy as np
 import yaml
 
 N_HIDDEN = 300
-THINK_TIME = 20
+THINK_TIME = 10
 
 OPT_PARAMS = Struct(**yaml.load("""
     rho: 0.95
@@ -106,7 +106,7 @@ class Planner(object):
         return reprs[-1]
 
     def act(self, l_plan, max_len, data, ll_targets, ll_masks, self_init):
-        n_actions = data[0].n_actions
+        #n_actions = data[0].n_actions
         n_targets = len(data[0].demonstration[0])
 
         lt_state_repr = "state_repr_%d"

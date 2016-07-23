@@ -1,0 +1,9 @@
+<KinBody name="%s">
+  <Translation>%f %f %f</Translation>
+  <Body type="static">
+    <Geom type="box">
+      <extents>%f %f %f</extents>
+      <diffuseColor>1.0 0.6 0.6</diffuseColor>
+    </Geom>
+  </Body>
+</KinBody>
