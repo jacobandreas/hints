@@ -2,17 +2,17 @@
 
 from model.planner import Planner
 from model.reflex import Reflex
-from task import maze, three_link
+from task import maze, three_link_2
 
 import apollocaffe
 import numpy as np
 
 N_ITERS = 1000000
-N_BATCH = 100
+N_BATCH = 10
 
 def main():
     #task = maze
-    task = three_link
+    task = three_link_2
     model = Planner()
     total_loss = 0
     for i_iter in range(N_ITERS):
@@ -35,16 +35,16 @@ def main():
                 print
                 print "SUCCESS"
                 i = accs.index(1)
-                print task.visualize(preds[i], test_data[i])
+                #print task.visualize(preds[i], test_data[i])
 
             if 0 in accs:
                 print
                 print "FAILURE"
                 i = accs.index(0)
                 print preds[i]
-                print task.visualize(preds[i], test_data[i])
+                #print task.visualize(preds[i], test_data[i])
                 print test_data[i].demonstration
-                print task.visualize(test_data[i].demonstration, test_data[i])
+                #print task.visualize(test_data[i].demonstration, test_data[i])
 
             print "\n"
 
