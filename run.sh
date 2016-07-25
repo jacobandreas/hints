@@ -11,4 +11,5 @@ export TRAJOPT_LOG_THRESH="FATAL"
 
 export PYTHONIOENCODING=utf-8
 
+#python -u -m memory_profiler main.py
 python -u main.py

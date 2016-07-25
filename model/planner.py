@@ -17,21 +17,25 @@ OPT_PARAMS = Struct(**yaml.load("""
 """))
 
 class Planner(object):
-    def __init__(self):
+    def __init__(self, categorical=False):
         self.net = ApolloNet()
         self.opt_state = adadelta.State()
+        self.categorical = categorical
 
     def forward(self, data, train=False):
         features = np.asarray([d.features for d in data])
         max_len = max(len(d.demonstration) for d in data)
-        n_targets = len(d.demonstration[0])
-        targets = np.zeros((len(data), max_len, n_targets))
+        if self.categorical:
+            n_targets = 1000
+            targets = np.zeros((len(data), max_len))
+        else:
+            n_targets = len(d.demonstration[0])
+            targets = np.zeros((len(data), max_len, n_targets))
         masks = np.zeros((len(data), max_len, n_targets))
         for i_datum in range(len(data)):
             demo_len = len(data[i_datum].demonstration)
-            targets[i_datum, :demo_len] = data[i_datum].demonstration
-            #targets[i_datum, :demo_len] += 1
-            masks[i_datum, :demo_len] = 1
+            targets[i_datum, :demo_len, ...] = data[i_datum].demonstration
+            masks[i_datum, :demo_len, ...] = 1
 
         l_features = "features"
         l_ip_repr = "ip_repr"
@@ -43,7 +47,6 @@ class Planner(object):
         self.net.f(NumpyData(l_features, features))
         self.net.f(InnerProduct(l_ip_repr, N_HIDDEN, bottoms=[l_features]))
         self.net.f(ReLU(l_relu_repr, bottoms=[l_ip_repr]))
-        #l_relu_repr = l_features
 
         l_plan = self.think(l_relu_repr, randomize=train)
 
@@ -107,7 +110,10 @@ class Planner(object):
 
     def act(self, l_plan, max_len, data, ll_targets, ll_masks, self_init):
         #n_actions = data[0].n_actions
-        n_targets = len(data[0].demonstration[0])
+        if self.categorical:
+            n_targets = 1000
+        else:
+            n_targets = len(data[0].demonstration[0])
 
         lt_state_repr = "state_repr_%d"
         lt_pred = "pred_%d"
@@ -127,7 +133,6 @@ class Planner(object):
             l_apply_mask = lt_apply_mask % t
             l_loss = lt_loss % t
 
-            #self.net.f(InnerProduct(l_pred, n_actions, bottoms=[l_hidden]))
             self.net.f(InnerProduct(l_pred, n_targets, bottoms=[l_hidden]))
             ll_predictions.append(l_pred)
 
@@ -135,17 +140,18 @@ class Planner(object):
                 l_mask = ll_masks[t]
                 l_target = ll_targets[t]
 
-                #loss += self.net.f(SoftmaxWithLoss(l_loss, bottoms=[l_pred,
-                #        l_target], ignore_label=0))
-                self.net.f(Eltwise(l_apply_mask, "PROD", 
-                        bottoms=[l_pred, l_mask]))
-                loss += self.net.f(EuclideanLoss(l_loss, 
-                        bottoms=[l_apply_mask, l_target]))
+                if self.categorical:
+                    loss += self.net.f(SoftmaxWithLoss(l_loss, 
+                            bottoms=[l_pred, l_target]))
+                else:
+                    self.net.f(Eltwise(l_apply_mask, "PROD", 
+                            bottoms=[l_pred, l_mask]))
+                    loss += self.net.f(EuclideanLoss(l_loss, 
+                            bottoms=[l_apply_mask, l_target]))
 
             if self_init:
                 state_reprs = []
                 for i_datum, datum in enumerate(data):
-                    #state = self.net.blobs[l_pred].data[i_datum, :].argmax() - 1
                     state = self.net.blobs[l_pred].data[i_datum, :]
                     state = np.round(state).astype(int)
                     state_reprs.append(datum.inject_state_features(state))

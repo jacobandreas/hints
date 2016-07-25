@@ -1,6 +1,8 @@
 from Box2D import *
 import cairo
 from collections import namedtuple
+import gc
+import itertools
 import numpy as np
 import os
 
@@ -11,31 +13,57 @@ N_INTERP = 20
 
 class Datum(namedtuple("Datum", ["features", "init", "goal", "demonstration", "config"])):
     def inject_state_features(self, state):
-        return np.concatenate((self.features, state))
+        return self.features
+        #return np.concatenate((self.features, state))
 
 Config = namedtuple("Config", ["init", "goal","len_links", "pos_blocks"])
 
+BASE_FIXTURE_DEF = b2FixtureDef(
+        shape=b2PolygonShape(box=(SCALE * 0.03, SCALE * 0.03), density=1.))
+BLOCK_FIXTURE_DEF = b2FixtureDef(
+        shape=b2PolygonShape(box=(SCALE * 0.01, SCALE * 0.01), density=1.))
+LINK_LENS = list(np.arange(0.02, 0.08, 0.005) * 2)
+LINK_FIXTURE_DEFS = [
+    b2FixtureDef(shape=b2PolygonShape(box=(SCALE * 0.005, SCALE * l / 2)),
+                 density=1.)
+    for l in LINK_LENS
+]
 
+ANGLES = np.arange(-1, 1, 0.2) * np.pi
+POSES = list(itertools.product(ANGLES, repeat=3))
+
+#@profile
 def load_batch(n_batch):
     data = []
     while len(data) < n_batch:
         config = sample_config()
-        midpoint = list((np.random.random(N_LINKS) * 2 - 1) * np.pi)
+        #midpoint = list((np.random.random(N_LINKS) * 2 - 1) * np.pi)
+        i_midpoint = np.random.randint(len(POSES))
+        midpoint = POSES[i_midpoint]
         direct_path = [config.init, config.goal]
         wp_path = [config.init, midpoint, config.goal]
         if verify(config, direct_path) is not None:
             continue
         if verify(config, wp_path) is None:
             continue
-        datum = Datum(np.zeros(N_BLOCKS), config.init, config.goal, wp_path, config)
+        datum = Datum(np.zeros(N_BLOCKS), config.init, config.goal, [0, i_midpoint], config)
         data.append(datum)
+
+        #visualize(data[0].config, verify(config, wp_path))
+        #exit()
     return data
 
 def evaluate(path, datum):
-    succ = verify(datum.config, path) is not None
+    true_path = [datum.init, POSES[np.argmax(path[1])], datum.goal]
+    succ = verify(datum.config, true_path) is not None
     return 1. if succ else 0.
 
-def visualize(config, path):
+def visualize(path, datum):
+    true_path = [datum.init, POSES[np.argmax(path[1])], datum.goal]
+    interp_path = interpolate(true_path)
+    animate(interp_path, datum.config)
+
+def animate(path, config):
     if os.path.exists("out.mp4"):
         os.remove("out.mp4")
     frames = []
@@ -46,6 +74,7 @@ def visualize(config, path):
         assert not os.path.exists(frame)
         render(world, frame)
         frames.append(frame)
+        #reset_world(world)
         t += 1
     os.system("ffmpeg -i %d.png -c:v libx264 -r 30 -pix_fmt yuv420p out.mp4")
     for frame in frames:
@@ -54,8 +83,12 @@ def visualize(config, path):
 # helpers
 
 def sample_config():
-    link_lengths = list((np.random.random(N_LINKS) * 0.04 + 0.02) * SCALE)
-    link_lengths[0] += 0.02
+    #link_lengths = list((np.random.random(N_LINKS) * 0.04 + 0.02) * SCALE)
+    #link_lengths[0] += 0.02
+    link_len_ids = np.random.randint(len(LINK_LENS) - 4, size=N_LINKS)
+    link_len_ids[0] += 4
+    link_lengths = [LINK_LENS[i] for i in link_len_ids]
+
     init_dof = list((np.random.random(N_LINKS) * 2 - 1) * np.pi)
     goal_dof = [0] * N_LINKS
 
@@ -79,21 +112,28 @@ def sample_config():
 
 def build_world(config, dof):
     world = b2World(gravity=(0, 0))
-    
+    assert world.bodyCount == 0
+
     # anchor
-    anchor = world.CreateStaticBody(position=(0, 0))
-    anchor.CreatePolygonFixture(box=(SCALE * 0.03, SCALE * 0.03))
-    prev = anchor
+    #if len(shared_anchors) == 0:
+    base = world.CreateStaticBody(position=(0, 0))
+    base.CreateFixture(BASE_FIXTURE_DEF)
+    #anchor.CreatePolygonFixture(box=(SCALE * 0.03, SCALE * 0.03))
+        #shared_anchors.append(anchor)
+    #else:
+    #    anchor = shared_anchors[0]
+    prev = base
     prev_len = 0
 
     # links
     links = []
     for i_link in range(N_LINKS):
         link = world.CreateDynamicBody()
-        link.CreatePolygonFixture(box=(SCALE * 0.005,
-                                       SCALE * config.len_links[i_link] / 2),
-                                  density=1,
-                                  friction=0.3)
+        #link.CreatePolygonFixture(box=(SCALE * 0.005,
+        #                               SCALE * config.len_links[i_link] / 2),
+        #                          density=1,
+        #                          friction=0.3)
+        link.CreateFixture(LINK_FIXTURE_DEFS[LINK_LENS.index(config.len_links[i_link])])
         link_len = SCALE * config.len_links[i_link] / 2
         joint = world.CreateRevoluteJoint(
                 bodyA=prev,
@@ -114,7 +154,7 @@ def build_world(config, dof):
         links.append(link)
 
     parent_angle = 0
-    parent = anchor
+    parent = base
     parent_len = 0
     for i_link in range(N_LINKS):
         link = links[i_link]
@@ -134,9 +174,10 @@ def build_world(config, dof):
     for block_pos in config.pos_blocks:
         block_body = world.CreateStaticBody(
                 position=(2 * SCALE * block_pos[0], 2 * SCALE * block_pos[1]))
-        block_body.CreatePolygonFixture(
-                box=(SCALE * 0.01, SCALE * 0.01),
-                isSensor=True)
+        #block_body.CreatePolygonFixture(
+        #        box=(SCALE * 0.01, SCALE * 0.01),
+        #        isSensor=True)
+        block_body.CreateFixture(BLOCK_FIXTURE_DEF)
         blocks.append(block_body)
 
     world.Step(0.01, 6, 2)
@@ -188,7 +229,8 @@ def render(world, dest):
             ctx.stroke()
     surf.write_to_png(dest)
 
-def verify(config, path):
+#@profile
+def interpolate(path):
     interp_path = []
     for i in range(1, len(path)):
         fr = np.asarray(path[i-1])
@@ -198,8 +240,14 @@ def verify(config, path):
             interp = list((1 - d) * fr + d * to)
             interp_path.append(interp)
     interp_path.append(path[-1])
+    return interp_path
+
+def verify(config, path):
+    interp_path = interpolate(path)
     for dof in interp_path:
         world = build_world(config, dof)
+        #if np.random.random() < 0.1:
+        #    return None
         for contact in world.contacts:
             if contact.touching:
                 return None

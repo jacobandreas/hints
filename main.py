@@ -8,14 +8,15 @@ import apollocaffe
 import numpy as np
 
 N_ITERS = 1000000
-N_BATCH = 10
+N_BATCH = 100
 
+#@profile
 def main():
     #task = maze
     task = three_link_2
-    model = Planner()
+    model = Planner(categorical=True)
     total_loss = 0
-    for i_iter in range(N_ITERS):
+    for i_iter in xrange(N_ITERS):
         print i_iter
         train_data = task.load_batch(N_BATCH)
         test_data = train_data
@@ -42,6 +43,7 @@ def main():
                 print "FAILURE"
                 i = accs.index(0)
                 print preds[i]
+                task.visualize(preds[i], test_data[i])
                 #print task.visualize(preds[i], test_data[i])
                 print test_data[i].demonstration
                 #print task.visualize(test_data[i].demonstration, test_data[i])
