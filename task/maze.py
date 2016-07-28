@@ -126,7 +126,7 @@ def shortest_path(board, init, goal):
 BLOCK = u"\u2593"
 CRUMB = u"o"
 
-def visualize(path, datum):
+def visualize(path, datum, prefix):
     #path = [(r*2, c*2) for r, c in path]
     #path = [(p / BOARD_SIZE, p % BOARD_SIZE) for p in path]
     path = [(np.round(r) * 2, np.round(c) * 2) for r, c in path]

@@ -29,43 +29,86 @@ LINK_FIXTURE_DEFS = [
     for l in LINK_LENS
 ]
 
-ANGLES = np.arange(-1, 1, 0.2) * np.pi
-POSES = list(itertools.product(ANGLES, repeat=3))
+#ANGLES = np.arange(-1, 1, 0.2) * np.pi
+#POSES = list(itertools.product(ANGLES, repeat=3))
+#POSES = [(0, 0, 0), (0, 2.5, -2.5)]
+POSES = [(np.pi / 2, 2.5, -2.5), (-np.pi / 2, 2.5, -2.5),
+         (np.pi / 2, -2.5, 2.5), (-np.pi / 2, -2.5, 2.5)]
+
+all_samples = []
+batch_uses = [0]
 
 #@profile
 def load_batch(n_batch):
-    data = []
-    while len(data) < n_batch:
-        config = sample_config()
-        #midpoint = list((np.random.random(N_LINKS) * 2 - 1) * np.pi)
-        i_midpoint = np.random.randint(len(POSES))
-        midpoint = POSES[i_midpoint]
-        direct_path = [config.init, config.goal]
-        wp_path = [config.init, midpoint, config.goal]
-        if verify(config, direct_path) is not None:
-            continue
-        if verify(config, wp_path) is None:
-            continue
-        datum = Datum(np.zeros(N_BLOCKS), config.init, config.goal, [0, i_midpoint], config)
-        data.append(datum)
+    if batch_uses[0] == 10 or len(all_samples) == 0:
+        batch_uses[0] = 0
+        data = []
+        while len(data) < n_batch:
+            config = sample_config()
+            i_midpoint = np.random.randint(len(POSES))
+            midpoint = POSES[i_midpoint]
+            direct_path = [config.init, config.goal]
+            wp_path = [config.init, midpoint, config.goal]
+            wp_path = zip(*[wrap_angle(pp) for pp in zip(*wp_path)])
 
-        #visualize(data[0].config, verify(config, wp_path))
-        #exit()
-    return data
+            if verify(config, direct_path) is not None:
+                continue
+            if verify(config, wp_path) is None:
+                continue
+
+            block_features = np.zeros((N_BLOCKS * N_LINKS, 2))
+            for i_block, block in enumerate(config.pos_blocks):
+                block_features[i_block, :] = block
+            features = np.concatenate(
+                    (block_features.ravel(), config.len_links, config.init, config.goal))
+
+            #demonstration = [config.init, midpoint, config.goal]
+            demonstration = [0, i_midpoint]
+            datum = Datum(features, config.init, config.goal, demonstration, config)
+
+            #fake_demo = np.zeros(len(POSES))
+            #fake_demo[i_midpoint] = 1
+            #fake_demo = [None, fake_demo]
+            #if evaluate(fake_demo, datum) != 1:
+            #    print verify(config, wp_path)
+            #    print evaluate(fake_demo, datum)
+            #    print ">>", demonstration[1]
+            #    visualize(demonstration, datum)
+            #    exit()
+            #assert evaluate(fake_demo, datum) == 1.
+
+            data.append(datum)
+
+        for d in data: all_samples.append(d)
+        if len(all_samples) > 10 * n_batch:
+            del all_samples[:n_batch]
+
+    batch_uses[0] += 1
+    batch_ids = np.random.randint(len(all_samples), size=n_batch)
+    batch_data = [all_samples[i] for i in batch_ids]
+    return batch_data
 
 def evaluate(path, datum):
+    #print path
+    assert len(path[1]) == len(POSES)
     true_path = [datum.init, POSES[np.argmax(path[1])], datum.goal]
+    #true_path = path
+    true_path = zip(*[wrap_angle(pp) for pp in zip(*true_path)])
     succ = verify(datum.config, true_path) is not None
     return 1. if succ else 0.
 
-def visualize(path, datum):
+def visualize(path, datum, name="vis"):
+    assert len(path[1]) == len(POSES)
     true_path = [datum.init, POSES[np.argmax(path[1])], datum.goal]
+    true_path = zip(*[wrap_angle(pp) for pp in zip(*true_path)])
     interp_path = interpolate(true_path)
-    animate(interp_path, datum.config)
+    interp_path = zip(*[wrap_angle(pp) for pp in zip(*interp_path)])
+    animate(interp_path, datum.config, name)
 
-def animate(path, config):
-    if os.path.exists("out.mp4"):
-        os.remove("out.mp4")
+def animate(path, config, name):
+    fname = "%s.mp4" % name
+    if os.path.exists(fname):
+        os.remove(fname)
     frames = []
     t = 0
     for dof in path:
@@ -74,9 +117,8 @@ def animate(path, config):
         assert not os.path.exists(frame)
         render(world, frame)
         frames.append(frame)
-        #reset_world(world)
         t += 1
-    os.system("ffmpeg -i %d.png -c:v libx264 -r 30 -pix_fmt yuv420p out.mp4")
+    os.system("ffmpeg -i %d.png -c:v libx264 -r 30 -pix_fmt yuv420p " + fname)
     for frame in frames:
         os.remove(frame)
 
@@ -89,6 +131,7 @@ def sample_config():
     link_len_ids[0] += 4
     link_lengths = [LINK_LENS[i] for i in link_len_ids]
 
+    #init_dof = [np.pi, 0, 0]
     init_dof = list((np.random.random(N_LINKS) * 2 - 1) * np.pi)
     goal_dof = [0] * N_LINKS
 
@@ -96,8 +139,9 @@ def sample_config():
     block_angles = (np.random.random(size=(N_LINKS, N_BLOCKS)) * 2 - 1) * np.pi
 
     blocks = []
+    #running_scale = link_lengths[0] / 2
     running_scale = 0
-    for i in range(N_LINKS):
+    for i in range(0, N_LINKS):
         r = running_scale + link_lengths[i] / 4
         #for j in range(2):
         for j in range(N_BLOCKS):
@@ -107,6 +151,13 @@ def sample_config():
             y = np.sin(block_angles[i][j]) * r
             blocks.append((x, y))
         running_scale = r + link_lengths[i] / 4
+    #r = link_lengths[0] / 4
+    #angle = np.pi / 2
+    #if np.random.random() < 0.5:
+    #    angle *= -1
+    #x = np.sin(angle) * r
+    #y = np.cos(angle) * r
+    #blocks = [(x, y)]
 
     return Config(init_dof, goal_dof, link_lengths, blocks)
 
@@ -115,13 +166,8 @@ def build_world(config, dof):
     assert world.bodyCount == 0
 
     # anchor
-    #if len(shared_anchors) == 0:
     base = world.CreateStaticBody(position=(0, 0))
     base.CreateFixture(BASE_FIXTURE_DEF)
-    #anchor.CreatePolygonFixture(box=(SCALE * 0.03, SCALE * 0.03))
-        #shared_anchors.append(anchor)
-    #else:
-    #    anchor = shared_anchors[0]
     prev = base
     prev_len = 0
 
@@ -129,10 +175,6 @@ def build_world(config, dof):
     links = []
     for i_link in range(N_LINKS):
         link = world.CreateDynamicBody()
-        #link.CreatePolygonFixture(box=(SCALE * 0.005,
-        #                               SCALE * config.len_links[i_link] / 2),
-        #                          density=1,
-        #                          friction=0.3)
         link.CreateFixture(LINK_FIXTURE_DEFS[LINK_LENS.index(config.len_links[i_link])])
         link_len = SCALE * config.len_links[i_link] / 2
         joint = world.CreateRevoluteJoint(
@@ -174,9 +216,6 @@ def build_world(config, dof):
     for block_pos in config.pos_blocks:
         block_body = world.CreateStaticBody(
                 position=(2 * SCALE * block_pos[0], 2 * SCALE * block_pos[1]))
-        #block_body.CreatePolygonFixture(
-        #        box=(SCALE * 0.01, SCALE * 0.01),
-        #        isSensor=True)
         block_body.CreateFixture(BLOCK_FIXTURE_DEF)
         blocks.append(block_body)
 
@@ -246,9 +285,19 @@ def verify(config, path):
     interp_path = interpolate(path)
     for dof in interp_path:
         world = build_world(config, dof)
-        #if np.random.random() < 0.1:
-        #    return None
         for contact in world.contacts:
             if contact.touching:
                 return None
     return interp_path
+
+def wrap_angle(points):
+    out = [points[0]]
+    current = points[0]
+    for point in points[1:]:
+        # TODO more general
+        candidates = [point + 2 * np.pi * i for i in range(-3, 3)]
+        best = min(candidates, key=lambda c: abs(c - current))
+        out.append(best)
+        current = best
+    assert len(points) == len(out)
+    return out

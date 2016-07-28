@@ -1,4 +1,4 @@
-from model.components import lstm
+from model.components import lstm, bilstm
 from opt import adadelta
 from util.misc import *
 
@@ -8,12 +8,6 @@ import numpy as np
 import yaml
 
 N_HIDDEN = 300
-THINK_TIME = 10
-
-#N_HIDDEN = 100
-#THINK_TIME = 5
-
-#N_CLASSES = 4
 
 OPT_PARAMS = Struct(**yaml.load("""
     rho: 0.95
@@ -22,22 +16,20 @@ OPT_PARAMS = Struct(**yaml.load("""
     clip: 10
 """))
 
-class Planner(object):
+class Iterator(object):
     def __init__(self, categorical=False):
         self.net = ApolloNet()
         self.opt_state = adadelta.State()
-        self.categorical = categorical
+        assert not categorical
 
     def forward(self, data, train=False):
         features = np.asarray([d.features for d in data])
         max_len = max(len(d.demonstration) for d in data)
-        if self.categorical:
-            n_targets = N_CLASSES
-            targets = np.zeros((len(data), max_len))
-        else:
-            n_targets = len(d.demonstration[0])
-            targets = np.zeros((len(data), max_len, n_targets))
+
+        n_targets = len(d.demonstration[0])
+        targets = np.zeros((len(data), max_len, n_targets))
         masks = np.zeros((len(data), max_len, n_targets))
+
         for i_datum in range(len(data)):
             demo_len = len(data[i_datum].demonstration)
             targets[i_datum, :demo_len, ...] = data[i_datum].demonstration
@@ -54,7 +46,10 @@ class Planner(object):
         self.net.f(InnerProduct(l_ip_repr, N_HIDDEN, bottoms=[l_features]))
         self.net.f(ReLU(l_relu_repr, bottoms=[l_ip_repr]))
 
-        l_plan = self.think(l_relu_repr, randomize=train)
+        ll_pred1 = self.initialize(l_relu_repr, max_len, n_targets, data,
+                self_init=not train)
+        ll_pred2 = self.refine(ll_pred1, n_targets)
+        #ll_pred2 = ll_pred1
 
         if train:
             ll_targets = []
@@ -66,66 +61,35 @@ class Planner(object):
                 self.net.f(NumpyData(l_mask, masks[:, i_target]))
                 ll_targets.append(l_target)
                 ll_masks.append(l_mask)
-        else:
-            ll_targets = None
-            ll_masks = None
 
-        loss, ll_predictions = self.act(l_plan, max_len, data, ll_targets,
-                ll_masks, self_init=not train)
-
-        if train:
+            loss1 = self.loss("pred1", ll_pred1, ll_targets, ll_masks)
+            loss2 = self.loss("pred2", ll_pred2, ll_targets, ll_masks)
+            loss = np.asarray([loss1, loss2])
             self.net.backward()
             adadelta.update(self.net, self.opt_state, OPT_PARAMS)
-
-        return loss, ll_predictions
-
-
-    def think(self, l_repr, randomize):
-        time = np.random.randint(THINK_TIME) + 1 if randomize else THINK_TIME
-        reprs = [l for l in lstm("think", [[l_repr] for i in range(time)],
-                self.net)]
-        return reprs[-1]
-
-    def act(self, l_plan, max_len, data, ll_targets, ll_masks, self_init):
-        #n_actions = data[0].n_actions
-        if self.categorical:
-            n_targets = N_CLASSES
         else:
-            n_targets = len(data[0].demonstration[0])
+            loss = None
 
+        return loss, ll_pred2
+
+    def initialize(self, l_repr, max_len, n_targets, data, self_init=False):
         lt_state_repr = "state_repr_%d"
         lt_pred = "pred_%d"
-        lt_apply_mask = "apply_mask_%d"
-        lt_loss = "loss_%d"
+
         ll_state_reprs = [lt_state_repr % t for t in range(max_len)]
 
         init_state_reprs = np.asarray([d.inject_state_features(d.init) 
                 for d in data])
         self.net.f(NumpyData(ll_state_reprs[0], init_state_reprs))
 
-        loss = 0 if ll_targets is not None else None
         ll_predictions = []
-        for t, l_hidden in enumerate(self.lstm("act", [[l, l_plan] for l in
-                ll_state_reprs[:-1]])):
+
+        for t, l_hidden in enumerate(
+                lstm("init", [[l] for l in ll_state_reprs[:-1]], N_HIDDEN, self.net)):
             l_pred = lt_pred % t
-            l_apply_mask = lt_apply_mask % t
-            l_loss = lt_loss % t
 
             self.net.f(InnerProduct(l_pred, n_targets, bottoms=[l_hidden]))
             ll_predictions.append(l_pred)
-
-            if ll_targets is not None:
-                l_mask = ll_masks[t]
-                l_target = ll_targets[t]
-
-                if self.categorical:
-                    loss += self.net.f(SoftmaxWithLoss(l_loss, 
-                            bottoms=[l_pred, l_target]))
-                else:
-                    self.net.f(Eltwise(l_apply_mask, "PROD", 
-                            bottoms=[l_pred, l_mask]))
-                    loss += self.net.f(EuclideanLoss(l_loss, 
-                            bottoms=[l_apply_mask, l_target]))
 
             if self_init:
                 state_reprs = []
@@ -142,7 +106,38 @@ class Planner(object):
                         state_reprs.append(np.zeros(self.net.blobs[ll_state_reprs[0]].shape[1:]))
             self.net.f(NumpyData(ll_state_reprs[t+1], np.asarray(state_reprs)))
 
-        return loss, ll_predictions
+        return ll_predictions
+
+    def refine(self, ll_prev, n_targets):
+        ll_hidden = bilstm("refine", [[l] for l in ll_prev], N_HIDDEN, self.net)
+        lt_concat = "refine_concat_%d"
+        lt_pred = "refine_pred_%d"
+        ll_predictions = []
+        for t, l_hidden in enumerate(ll_hidden):
+            l_concat = lt_concat % t
+            l_pred = lt_pred % t
+            #self.net.f(Concat(l_concat, bottoms=[, l_hidden]))
+            self.net.f(InnerProduct(l_pred, n_targets, bottoms=[l_hidden]))
+            ll_predictions.append(l_pred)
+        return ll_predictions
+
+    def loss(self, prefix, ll_pred, ll_targets, ll_masks):
+        lt_apply_mask = "apply_mask_%%d_%s" % prefix
+        lt_loss = "loss_%%d_%s" % prefix
+        loss = 0
+        for t, l_pred in enumerate(ll_pred):
+            l_pred = ll_pred[t]
+            l_apply_mask = lt_apply_mask % t
+            l_loss = lt_loss % t
+
+            l_mask = ll_masks[t]
+            l_target = ll_targets[t]
+
+            self.net.f(Eltwise(l_apply_mask, "PROD", 
+                    bottoms=[l_pred, l_mask]))
+            loss += self.net.f(EuclideanLoss(l_loss, 
+                    bottoms=[l_apply_mask, l_target]))
+        return loss
 
     def demonstrate(self, data):
         loss, _ = self.forward(data, train=True)

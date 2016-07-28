@@ -7,7 +7,9 @@ import numpy as np
 import yaml
 
 N_HIDDEN = 100
-N_LAYERS = 2
+N_LAYERS = 3
+
+N_CLASSES = 4
 
 OPT_PARAMS = Struct(**yaml.load("""
     rho: 0.95
@@ -17,14 +19,18 @@ OPT_PARAMS = Struct(**yaml.load("""
 """))
 
 class Reflex(object):
-    def __init__(self):
+    def __init__(self, categorical=False):
         self.net = ApolloNet()
         self.opt_state = adadelta.State()
-        self.n_targets = 2
+        if categorical:
+            self.n_targets = N_CLASSES
+        else:
+            self.n_targets = 2
+        self.categorical = categorical
 
-    def forward(self, features, positions, targets, masks, train=False):
+    def forward(self, features, targets, masks, train=False):
         features = np.asarray(features)
-        positions = np.asarray(positions)
+        #positions = np.asarray(positions)
         target = np.asarray(targets)
         mask = np.asarray(masks)
 
@@ -40,10 +46,10 @@ class Reflex(object):
 
         self.net.clear_forward()
         self.net.f(NumpyData(l_features, features))
-        self.net.f(NumpyData(l_positions, positions))
-        self.net.f(Concat(l_concat, bottoms=[l_features, l_positions]))
+        #self.net.f(NumpyData(l_positions, positions))
+        #self.net.f(Concat(l_concat, bottoms=[l_features, l_positions]))
 
-        l_prev = l_concat
+        l_prev = l_features
         for i_layer in range(N_LAYERS - 1):
             l_ip = lt_ip % i_layer
             l_relu = lt_relu % i_layer
@@ -56,53 +62,58 @@ class Reflex(object):
         self.l_predict = l_ip
 
         if train:
-            self.net.f(NumpyData(l_mask, mask))
-            self.net.f(Eltwise(l_mul_mask, "PROD", bottoms=[l_mask, self.l_predict]))
             self.net.f(NumpyData(l_target, target))
-            loss = self.net.f(EuclideanLoss(l_loss, bottoms=[l_target, l_mul_mask]))
+            if self.categorical:
+                loss = self.net.f(SoftmaxWithLoss(l_loss, 
+                    bottoms=[self.l_predict, l_target]))
+            else:
+                self.net.f(NumpyData(l_mask, mask))
+                self.net.f(Eltwise(l_mul_mask, "PROD", bottoms=[l_mask, self.l_predict]))
+                loss = self.net.f(EuclideanLoss(l_loss, bottoms=[l_target, l_mul_mask]))
             self.net.backward()
             adadelta.update(self.net, self.opt_state, OPT_PARAMS)
             return np.asarray([loss])
-
 
     def demonstrate(self, data):
         max_len = max(len(d.demonstration) for d in data)
         loss = 0
         for t in range(1, max_len):
             features = []
-            positions = []
+            #positions = []
             targets = []
             masks = []
 
             for datum in data:
-                features.append(datum.features)
+                #features.append(datum.features)
+                features.append(datum.inject_state_features(datum.demonstration[t-1]))
                 if t < len(datum.demonstration):
-                    positions.append(datum.demonstration[t-1])
+                    #positions.append(datum.demonstration[t-1])
                     targets.append(datum.demonstration[t])
                     masks.append((1,) * self.n_targets)
                 else:
-                    positions.append((0,) * self.n_targets)
+                    #positions.append((0,) * self.n_targets)
                     targets.append((0,) * self.n_targets)
                     masks.append((0,) * self.n_targets)
 
-            loss += self.forward(features, positions, targets, masks,
-                    train=True)
+            loss += self.forward(features, targets, masks, train=True)
 
         return loss
 
     def predict(self, data):
         max_len = max(len(d.demonstration) for d in data)
-        print max_len
         paths = [[datum.init] for datum in data]
         for t in range(1, max_len):
             features = []
-            positions = []
+            #positions = []
 
             for i_datum in range(len(data)):
-                features.append(datum.features)
-                positions.append(paths[i_datum][-1])
+                datum = data[i_datum]
+                features.append(datum.inject_state_features(datum.demonstration[t-1]))
+                #features.append(datum.features)
+                #positions.append(paths[i_datum][-1])
             
-            self.forward(features, positions, [], [])
+            #self.forward(features, positions, [], [])
+            self.forward(features, [], [])
 
             for i_datum in range(len(data)):
                 paths[i_datum].append(tuple(self.net.blobs[self.l_predict].data[i_datum]))
